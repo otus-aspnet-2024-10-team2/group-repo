@@ -1,0 +1,88 @@
+Данное поисание нужно для сборки и запуска всех репозиториев на одном хосте(пк ползователе), где имеется развернутый docker и kubernet.
+
+Для запуска ипользовались следующие инструменты:
+  - VS Code
+  - Docker desktop
+  - Git
+
+Для того, что бы проекты развернуть на своем ПК, надо:
+1. Создать директорию, где будет развернуты проекты.
+
+2. Надо проинициализировать папку в git. Для этого надо выполнить команду git init. Можно сделать через Git Bash(windos), Terminal (Linux\MacOs). 
+   Можно также сделать и через VS Code. Filt->Open Folder(созданная папка для проекта), и через терминал (shift+ctrl+`) выполнить команду git init
+
+3. Создаем модули. git submodule add <remote-git-repository>. Пример git submodule add https://github.com/bo90/NotificatoinServicesApp.git. 
+   Стаскиваем таким образом клиент и серверную часть. Ну, или кому что надо...
+
+4. В папке проекта, в которой расположены скачаны модули, надо создать docker-comopos.yaml файл. Он необходим, что бы можно было
+   запустить на разных контейнерах клент и сервер (как пример), на одной машине
+
+5. Структура docker-compose файла.   
+  Ниже показан пример docker-compose файла, который надо сделать в своем проекте. Также, отдельно приложу как пример.
+  
+        services:                    # Начинаем перечислять сервисы, которые надо развернуть 
+            client:                  # клиенткский сервис
+                image: client_app    # image который будет отображатся в docker'e
+                build:               # путь до dockerfile
+                    context: ./client_notification
+                    dockerfile: Dockerfile
+                ports:              # порт на котором будет крутиться клиент. В нашем случае 3000 порт. то есть при запуске, можно будет обращаться по http://localhost:3000
+                    - "3000:80"
+                # Добавляем healthcheck для проверки готовности
+                healthcheck:
+                    test: ["CMD", "curl", "-f", "http://localhost:80"]
+                    interval: 5s
+                    timeout: 5s
+                    retries: 5
+                depends_on:        # добавляем зависимость от бэк сервиса
+                    - notification-service
+                networks:          # добавляем сеть, в которой будут общаться сервисы
+                    - app-network
+            
+            notification-service:  #сервис уведомлений
+                build:
+                    context: ./NotificatoinServicesApp
+                    dockerfile: Dockerfile
+                ports:
+                    - "5001:8080"
+                environment:       #переменные сборки, нужны для Swagger и БД в данном случае
+                    - ASPNETCORE_ENVIRONMENT=Development
+                    - ConnectionStrings__PSQLConnectionString=Host=db;Port=5432;Database=NotificationDB;UserId=postgres;Password=password;
+                # depends_on:
+                #     - db
+                networks:
+                - app-network
+            
+            db:            # Сервис БД
+                image: postgres:15-alpine
+                #  user: "501:20"
+                volumes:  #прописываем хранилище, где будет расположена бд
+                    - ./postgres-data:/var/lib/postgresql/data
+                environment:  # прописываем user/password/database
+                - POSTGRES_USER=postgres
+                - POSTGRES_PASSWORD=password
+                - POSTGRES_DB=NotificationDB        
+                networks:
+                    - app-network
+                ports:
+                    - "5433:5432"
+            
+        volumes:  # прописываем хранилище
+            postgres-data:
+                # driver: local
+                # driver_opts:
+                #     type: none
+                #     o: bind
+                #     device: ./postgres-data  # Альтернатива для bind mount через объявление тома
+        
+        networks:  #прописываем сеть
+            app-network:
+                driver: bridge
+
+4. После того как будет отредактирован docker-compose файл, необходимо его сохранить, и произвести запуск.
+5. Для запуска надо в терминале Vscode (shift+ctrl+`), надо в папке основного проекта выполнить команду docker-compose up --build.
+   Для интерактивного режима, можно выполнитьи docker-compose up -d --buld
+   Может возникнуть ситуация, когда запуск контейнеров сервера упадет из-за того, что не получилось найти dockerfile. Для этого, необходимо вынести Dockerfile проекта на каталог выше. 
+   Как примем Dockerfile расположен в NotificationServiceApp/WebApi/Dockerfile. Его надо поднять на каталог выше - NotificationServiceApp/WebApi/ -> NotificationServiceApp
+6. После запуска контейнеров, можно через браузер постучаться localhost:3000 и поюзать клиент.
+7. Для остановки контейнеров нужно выпонить команду docker-compose down -v.
